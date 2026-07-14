@@ -1,0 +1,62 @@
+{
+    "expressions": {
+        "description": "可用表情",
+        "type": "list",
+        "hint": "每个条目对应一个表情。模型将从中选择合适的表情。",
+        "default": ["neutral", "happy", "sad", "angry", "surprised"]
+    },
+    "tts_provider_id": {
+        "description": "TTS 提供商 ID",
+        "type": "string",
+        "hint": "用于语音合成的 TTS 提供商 ID。",
+        "default": "",
+        "_special": "select_provider_tts"
+    },
+    "vrm_file": {
+        "description": "VRM 模型文件",
+        "type": "file",
+        "hint": "上传 VRM 模型文件。客户端连接成功后将自动推送该文件用于创建角色。",
+        "default": [],
+        "file_types": ["vrm"]
+    },
+    "background_file": {
+        "description": "背景图片文件",
+        "type": "file",
+        "hint": "上传背景图片文件。客户端连接成功后将自动推送该文件用于更新背景。",
+        "default": [],
+        "file_types": ["png", "jpg", "jpeg", "webp"]
+    },
+    "vrma_animations": {
+        "description": "VRMA 动画",
+        "type": "template_list",
+        "hint": "每个条目对应一个动画，模型将从中选择合适的动作。",
+        "templates": {
+            "animation": {
+                "name": "动画",
+                "hint": "一个动画名及其对应的 VRMA 文件",
+                "display_item": "name",
+                "items": {
+                    "name": {
+                        "description": "动画名",
+                        "type": "string",
+                        "hint": "动画的唯一标识。命名为 idle 的动画会作为前端待机动作。",
+                        "default": ""
+                    },
+                    "file": {
+                        "description": "VRMA 文件",
+                        "type": "file",
+                        "hint": "上传一个 VRMA 动画文件。",
+                        "default": [],
+                        "file_types": ["vrma"]
+                    },
+                    "loop": {
+                        "description": "循环播放",
+                        "type": "bool",
+                        "hint": "开启后前端将循环播放该动画。",
+                        "default": false
+                    }
+                }
+            }
+        }
+    }
+}
