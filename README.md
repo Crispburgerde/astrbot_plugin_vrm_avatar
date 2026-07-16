@@ -2,6 +2,8 @@
 
 为 AstrBot 提供 VRM 虚拟形象能力的插件。通过 WebSocket 驱动前端 VRM 模型，实现表情切换、肢体动作、语音合成与口型同步的实时表演。
 
+> **注意**：本插件仅提供后端能力，需要配合前端应用 [astrbot_vrm_avatar_client](https://github.com/Crispburgerde/astrbot_vrm_avatar_client) 一起使用，由前端负责 VRM 模型的渲染与表演呈现。
+
 ## 功能特性
 
 - **VRM 模型加载**：上传 VRM 模型文件，客户端连接后自动推送并加载角色。
@@ -54,3 +56,4 @@
 
 - [AstrBot](https://github.com/AstrBotDevs/AstrBot)
 - [AstrBot 插件开发文档](https://docs.astrbot.app/dev/star/plugin-new.html)
+- [astrbot_vrm_avatar_client](https://github.com/Crispburgerde/astrbot_vrm_avatar_client)：配套的前端应用，负责 VRM 模型渲染与表演呈现
