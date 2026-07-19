@@ -11,16 +11,16 @@
 - **VRMA 动画**：上传 VRMA 动画文件，支持循环播放与待机（`idle`）动作，LLM 可按剧情需要触发对应肢体动作。
 - **背景图片**：自定义虚拟形象展示背景。
 - **TTS 语音合成**：对接 AstrBot 已配置的 TTS 提供商，为每段对话生成语音，前端基于 Web Audio API 实现口型同步。
-- **LLM 驱动表演**：在 LLM 请求阶段注入 System Prompt，引导 LLM 以 JSON 分段格式输出对话、表情与动作，实现自然的多段表演。
+- **LLM 驱动表演**：在 LLM 请求阶段注入 System Prompt，引导 LLM 以纯文本标签格式（`[expression] <action> 台词`）输出对话、表情与动作，实现自然的多段表演。
 
 ## 工作原理
 
 ```
 用户消息 → AstrBot → LLM（注入表演格式 Prompt）
                         ↓
-                   JSON 分段输出（dialogue / expression / action）
+              纯文本标签输出（[expression] <action> 台词）
                         ↓
-              解析分段 → 逐段生成 TTS 音频 → 构建 performance 消息
+              按行解析分段 → 逐段生成 TTS 音频 → 构建 performance 消息
                         ↓
                  WebSocket 推送至 VRM 前端客户端
                         ↓
@@ -33,7 +33,7 @@
 |------|------|
 | `initialize` | 启动 WebSocket 服务器 |
 | `on_llm_request` | 向 System Prompt 注入表演格式要求，告知 LLM 可用的表情与动作 |
-| `on_decorating_result` | 解析 LLM 输出的 JSON 分段，生成 TTS 音频，通过 WebSocket 推送表演数据 |
+| `on_decorating_result` | 按行解析 LLM 输出的标签分段，生成 TTS 音频，通过 WebSocket 推送表演数据 |
 | 客户端连接回调 | 自动向新连接的客户端推送 VRM 模型、背景图与动画列表 |
 
 ## 配置说明
@@ -50,7 +50,7 @@
 
 ## 依赖
 
-- [json-repair](https://pypi.org/project/json-repair/) >= 0.30.0
+- 无第三方依赖。
 
 ## 相关链接
 
