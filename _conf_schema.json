@@ -1,9 +1,28 @@
 {
-    "expressions": {
-        "description": "可用表情",
-        "type": "list",
-        "hint": "每个条目对应一个表情。模型将从中选择合适的表情。",
-        "default": ["neutral", "happy", "sad", "angry", "surprised"]
+    "ws_host": {
+        "description": "WebSocket 监听地址",
+        "type": "string",
+        "hint": "WebSocket 与文件服务监听的网卡地址。0.0.0.0 表示监听所有网卡（局域网/手机前端可访问），127.0.0.1 表示仅本机访问。",
+        "default": "0.0.0.0"
+    },
+    "ws_port": {
+        "description": "WebSocket 端口",
+        "type": "int",
+        "hint": "与前端客户端通信的 WebSocket 端口。",
+        "default": 8765
+    },
+    "http_port": {
+        "description": "文件服务端口",
+        "type": "int",
+        "hint": "VRM 模型、背景图、VRMA 动画等大文件的 HTTP 下载端口（默认 8766，即 WebSocket 端口 + 1）。若修改了 ws_port，请一并调整此端口。若通过 Nginx 等反向代理对外提供 HTTPS，请按需调整并放行该端口。",
+        "default": 8766
+    },
+    "extractor_provider_id": {
+        "description": "表演提取模型",
+        "type": "string",
+        "hint": "用于在大模型生成原始回复后，拆分台词并为每句标注情绪与强度的小模型提供商 ID。留空则回退为整段回复作为单个表演（neutral 情绪）。",
+        "default": "",
+        "_special": "select_provider"
     },
     "tts_provider_id": {
         "description": "TTS 提供商 ID",
@@ -29,7 +48,7 @@
     "vrma_animations": {
         "description": "VRMA 动画",
         "type": "template_list",
-        "hint": "每个条目对应一个动画，模型将从中选择合适的动作。",
+        "hint": "每个条目对应一个动画。当前表演流程不再直接触发这些动画，但配置保留以备后续使用；layer=idle 的动画仍可通过 set_idle 工具切换待机姿态。",
         "templates": {
             "animation": {
                 "name": "动画",
@@ -39,8 +58,15 @@
                     "name": {
                         "description": "动画名",
                         "type": "string",
-                        "hint": "动画的唯一标识。命名为 idle 的动画会作为前端待机动作。",
+                        "hint": "动画的唯一标识，必填，支持中文。避免使用 @、[] 等符号。layer=idle 中命名为 idle 的动画会作为前端默认待机动作。",
                         "default": ""
+                    },
+                    "layer": {
+                        "description": "动画用途",
+                        "type": "string",
+                        "options": ["idle", "gesture", "action"],
+                        "hint": "idle=待机动画变体（由 LLM 通过 set_idle 工具切换）、gesture=上半身手势、action=全身动作。当前表演流程不直接触发 gesture/action，仅 idle 生效，其余保留以备后续使用。",
+                        "default": "action"
                     },
                     "file": {
                         "description": "VRMA 文件",
@@ -48,12 +74,6 @@
                         "hint": "上传一个 VRMA 动画文件。",
                         "default": [],
                         "file_types": ["vrma"]
-                    },
-                    "loop": {
-                        "description": "循环播放",
-                        "type": "bool",
-                        "hint": "开启后前端将循环播放该动画。",
-                        "default": false
                     }
                 }
             }

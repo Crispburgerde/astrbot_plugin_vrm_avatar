@@ -29,13 +29,13 @@ async def get_tts_audio(
         ``None``.
     """
     if not tts_provider_id:
-        logger.warning("[TTS] TTS provider 未配置")
+        logger.warning("[TTS] TTS provider not configured")
         return None
 
     tts_provider = context.get_provider_by_id(tts_provider_id)
     if not isinstance(tts_provider, TTSProvider):
         logger.warning(
-            f"[TTS] TTS provider 无效: id={tts_provider_id}, type={type(tts_provider)}"
+            f"[TTS] Invalid TTS provider: id={tts_provider_id}, type={type(tts_provider)}"
         )
         return None
 
@@ -45,8 +45,8 @@ async def get_tts_audio(
             audio_base64 = base64.b64encode(f.read()).decode()
         filename = Path(audio_path).name
 
-        logger.info(f"[TTS] 音频生成成功: {audio_path}")
+        logger.info(f"[TTS] Audio generated: {audio_path}")
         return filename, audio_base64
     except Exception as e:
-        logger.warning(f"[TTS] 音频生成异常: {e}")
+        logger.warning(f"[TTS] Audio generation failed: {e}")
         return None
