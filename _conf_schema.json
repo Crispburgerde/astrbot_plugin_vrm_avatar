@@ -17,10 +17,10 @@
         "hint": "VRM 模型、背景图、VRMA 动画等大文件的 HTTP 下载端口（默认 8766，即 WebSocket 端口 + 1）。若修改了 ws_port，请一并调整此端口。若通过 Nginx 等反向代理对外提供 HTTPS，请按需调整并放行该端口。",
         "default": 8766
     },
-    "extractor_provider_id": {
-        "description": "表演提取模型",
+    "director_provider_id": {
+        "description": "导演模型",
         "type": "string",
-        "hint": "用于在大模型生成原始回复后，拆分台词并为每句标注情绪与强度的小模型提供商 ID。留空则回退为整段回复作为单个表演（neutral 情绪）。",
+        "hint": "用于在大模型生成原始回复后，在原文中内联插入 [情绪] 标记的小模型提供商 ID（拆分由解析器按标记边界完成，强度为固定默认值）。留空则回退为整段回复作为单个表演（neutral 情绪）。",
         "default": "",
         "_special": "select_provider"
     },
@@ -30,6 +30,32 @@
         "hint": "用于语音合成的 TTS 提供商 ID。",
         "default": "",
         "_special": "select_provider_tts"
+    },
+    "forced_alignment": {
+        "description": "强制对齐服务",
+        "type": "object",
+        "hint": "将整段 TTS 音频与台词文本做强制对齐（FA），得到每个字/词的时间窗口，用于前端在共享音频内按句切换情绪。发送前会自动调用 ffmpeg 将音频转为 WAV。",
+        "items": {
+            "base_url": {
+                "description": "服务地址",
+                "type": "string",
+                "hint": "强制对齐服务的完整根地址（不含 /v1/audio/alignments 路径），例如 http://127.0.0.1:8080。",
+                "default": "http://127.0.0.1:8080"
+            },
+            "model": {
+                "description": "模型名",
+                "type": "string",
+                "hint": "请求中的 model 表单字段，需与服务端已加载的对齐模型名一致。",
+                "default": "qwen3_forced_aligner_0_6b_q8_0"
+            },
+            "language": {
+                "description": "对齐语言",
+                "type": "string",
+                "options": ["zh", "yue", "en", "de", "es", "fr", "it", "pt", "ru", "ko", "ja"],
+                "hint": "台词的语言，需与 TTS 实际播报的语言一致才能得到正确的时间戳。",
+                "default": "zh"
+            }
+        }
     },
     "vrm_file": {
         "description": "VRM 模型文件",

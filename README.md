@@ -109,7 +109,7 @@ server {
 | `ws_host` | 字符串 | WebSocket 与文件服务监听地址（`0.0.0.0` 所有网卡 / `127.0.0.1` 仅本机） |
 | `ws_port` | 整数 | WebSocket 端口（默认 8765） |
 | `http_port` | 整数 | 文件服务端口（默认 8766；修改 `ws_port` 时请一并调整） |
-| `extractor_provider_id` | 字符串 | 表演提取模型提供商 ID（建议选用轻量小模型），在主 LLM 生成原始回复后负责按情绪变化点拆分台词并标注情绪与强度；留空则回退为整段回复作为单个 neutral 表演 |
+| `director_provider_id` | 字符串 | 导演模型提供商 ID（建议选用轻量小模型），在主 LLM 生成原始回复后在原文中内联插入 `[情绪]` 标记（拆分由解析器按标记边界完成，强度为固定默认值）；留空则回退为整段回复作为单个 neutral 表演 |
 | `tts_provider_id` | 字符串 | 用于语音合成的 TTS 提供商 ID，需提前在 AstrBot 中配置对应的 TTS Provider（推荐 Fish Audio，可识别文本前的 `[emotion]` 情绪标签） |
 | `vrm_file` | 文件 | VRM 模型文件（`.vrm`），客户端连接后自动推送 |
 | `background_file` | 文件 | 背景图片文件（`.png` / `.jpg` / `.jpeg` / `.webp`） |
