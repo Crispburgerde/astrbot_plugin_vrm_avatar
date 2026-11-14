@@ -43,7 +43,7 @@ async def get_tts_audio(
     try:
         logger.info(
             f"[TTS] Synthesizing with provider '{tts_provider_id}' "
-            f"({type(tts_provider).__name__}), text: {text}"
+            f"({type(tts_provider).__name__})"
         )
         audio_path = await tts_provider.get_audio(text)
         with open(audio_path, "rb") as f:

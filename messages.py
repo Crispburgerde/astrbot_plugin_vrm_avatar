@@ -11,7 +11,7 @@ from astrbot.api import logger
 from astrbot.api.star import Context
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
-from .alignment import align_audio_text, apply_word_alignments
+from .alignment import align_performances
 from .performance import Performance
 from .tts import get_tts_audio
 from .wire_types import FilePayload
@@ -98,12 +98,12 @@ async def build_performance_message(
 
     The full reply is synthesized as a single clip: the segment texts are
     joined with their emotion tags inline (``[emotion]``), which Fish Audio
-    TTS interprets as prosody markers. The clip is then aligned against the
-    tag-stripped dialogue text via the forced-alignment service (configured
-    by ``alignment_config``), and the resulting word timings are matched
-    back onto the segments to fill each performance's ``start``/``end``
-    window inside the clip. The audio is attached to the message as a
-    sibling of the performance list, never split per segment.
+    TTS interprets as prosody markers. The clip is then handed to
+    :func:`alignment.align_performances`, which fills each performance's
+    ``start``/``end`` window inside the clip (with a proportional-estimate
+    fallback when the forced-alignment service is down or incomplete).
+    The audio is attached to the message as a sibling of the performance
+    list, never split per segment.
 
     Args:
         context: The AstrBot context, used for TTS resolution.
@@ -114,25 +114,19 @@ async def build_performance_message(
     Returns:
         The wire-ready performance message.
     """
-    for item in performances:
-        logger.info(
-            f"[Performance] text: {item.text} | "
-            f"emotion: {item.emotion} | intensity: {item.intensity}"
-        )
     dialogue = "\n".join(f"[{item.emotion}]{item.text}" for item in performances)
     audio_result = await get_tts_audio(context, tts_provider_id, dialogue)
-    if not audio_result:
-        return PerformanceMessage(performances=performances)
-
-    filename, audio_base64, audio_path = audio_result
-    plain_text = "\n".join(item.text for item in performances)
-    words = await align_audio_text(audio_path, plain_text, alignment_config)
-    if words:
-        apply_word_alignments(performances, words)
-    return PerformanceMessage(
-        performances=performances,
-        audio=FilePayload(filename=filename, data=audio_base64),
-    )
+    if audio_result:
+        filename, audio_base64, audio_path = audio_result
+        await align_performances(performances, audio_path, alignment_config)
+        message = PerformanceMessage(
+            performances=performances,
+            audio=FilePayload(filename=filename, data=audio_base64),
+        )
+    else:
+        message = PerformanceMessage(performances=performances)
+    logger.info(f"[Performance] {performances}")
+    return message
 
 
 async def build_update_character_message(

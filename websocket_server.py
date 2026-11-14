@@ -201,6 +201,28 @@ class WebSocketServer:
                 name, _, value = line.decode("latin-1").partition(":")
                 req_headers[name.strip().lower()] = value.strip()
 
+            if method == "OPTIONS":
+                # CORS preflight: the cross-origin client conditionally
+                # re-fetches files with If-None-Match / If-Modified-Since,
+                # which are not CORS-safelisted headers, so the browser sends
+                # an OPTIONS probe first. Echo back the requested headers and
+                # cache the preflight result to avoid one probe per file.
+                allow_headers = (
+                    req_headers.get("access-control-request-headers")
+                    or "If-None-Match, If-Modified-Since, Range"
+                )
+                headers = [
+                    "HTTP/1.1 204 No Content",
+                    "Access-Control-Allow-Origin: *",
+                    "Access-Control-Allow-Methods: GET, OPTIONS",
+                    f"Access-Control-Allow-Headers: {allow_headers}",
+                    "Access-Control-Max-Age: 86400",
+                    "Content-Length: 0",
+                    "Connection: close",
+                ]
+                writer.write(("\r\n".join(headers) + "\r\n\r\n").encode("latin-1"))
+                return
+
             path = urlsplit(raw_path).path
             if method != "GET" or not path.startswith("/files/"):
                 self._write_http(writer, http.HTTPStatus.NOT_FOUND, "Not found\n")

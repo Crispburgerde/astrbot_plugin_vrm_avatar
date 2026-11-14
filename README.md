@@ -42,38 +42,12 @@
 
 ## 大文件分发（URL + HTTP）
 
-VRM 模型、背景图与 VRMA 动画不再以 base64 内嵌在 WebSocket JSON 消息中推送（大型模型如 150MB 的 MANUKA 会阻塞服务端事件循环与前端主线程）。改为：
+VRM 模型、背景图与 VRMA 动画等大文件通过 HTTP 分发，WebSocket 消息中仅携带文件 URL（避免大型模型如 150MB 的 MANUKA 阻塞服务端事件循环与前端主线程）：
 
 - 插件在可配置的 `http_port` 端口（默认 8766）启动一个轻量 HTTP 文件服务器，`GET /files/<插件数据目录相对路径>` 返回文件本体，带 `Access-Control-Allow-Origin: *`（跨源可访问）、`Cache-Control: no-cache` 与 `ETag`（支持 304 协商缓存，页面刷新不重复下载）。
-- `update_character` / `update_background` / `update_animations` 消息中的 `FilePayload` 改为携带 `url` 字段（如 `/files/files/vrm_file/MANUKA.vrm`），不再携带 `data`。TTS 音频较小，仍以 `data`（base64）内嵌在 `performance` 消息中。
+- `update_character` / `update_background` / `update_animations` 消息中的 `FilePayload` 仅携带 `url` 字段（如 `/files/files/vrm_file/MANUKA.vrm`），不包含文件数据。TTS 音频体积较小，以 `data`（base64）内嵌在 `performance` 消息中。
 
-**前端对接约定**：用 WebSocket 连接地址中的主机名 + `http_port` 端口拼出 HTTP 基址（如 `ws://192.168.1.5:8765`、`http_port=8766` → `http://192.168.1.5:8766`），`fetch(base + url)` 取 `arrayBuffer()` 后交给 VRM 加载器。注意前端页面不能通过 HTTPS 打开，否则浏览器会因混合内容拦截对 `http://` 资源的请求（`ws://` 同理）；若需要 HTTPS，请通过反向代理统一入口（见下节）。
-
-### 通过 Nginx 反向代理提供 HTTPS
-
-若前端页面部署在 HTTPS 下（如公网域名 + 证书），可将 WebSocket 与文件服务统一反代到同一域名，插件无需任何改动：
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name avatar.example.com;
-    # ssl_certificate / ssl_certificate_key ...
-
-    location /ws {
-        proxy_pass http://127.0.0.1:8765;          # ws_port
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
-    }
-
-    location /files/ {
-        proxy_pass http://127.0.0.1:8766;          # http_port
-    }
-}
-```
-
-前端此时连接 `wss://avatar.example.com/ws`，文件基址为 `https://avatar.example.com`（URL 路径保持不变）。
+**前端对接约定**：用 WebSocket 连接地址中的主机名 + `http_port` 端口拼出 HTTP 基址（如 `ws://192.168.1.5:8765`、`http_port=8766` → `http://192.168.1.5:8766`），`fetch(base + url)` 取 `arrayBuffer()` 后交给 VRM 加载器。注意：前端页面若通过 HTTPS 打开，其向 `http://` / `ws://` 发出的请求会被浏览器混合内容策略（Mixed Content）直接拦截，导致模型加载与 WebSocket 连接全部失败（`http://localhost` 除外）；若需要 HTTPS，请通过反向代理把 `https://` / `wss://` 统一代理到后端的 `http://` / `ws://`。
 
 ## 表演数据格式
 
@@ -96,8 +70,8 @@ server {
 ```
 
 - 拆分单位是**情绪/表现变化点**，同一情绪的连续台词并入同一个对象。
-- `emotion` 必须在固定 24 词表内（与前端引擎一致，不可增删）：`neutral`、`happy`、`excited`、`amused`、`proud`、`confident`、`calm`、`relieved`、`affectionate`、`shy`、`embarrassed`、`curious`、`concerned`、`confused`、`tired`、`sad`、`lonely`、`disappointed`、`anxiety`、`fear`、`anger`、`frustrated`、`disgust`、`surprised`；未知值由插件降级为 `neutral`。
-- `intensity` 为 0~1 的情绪强度；缺失或越界由插件 clamp 到 `[0,1]`，缺失取 `0.85`。
+- `emotion` 必须在固定 24 词表内（与前端引擎一致，不可增删）：`neutral`（平静）、`happy`（开心）、`excited`（兴奋）、`amused`（愉悦）、`proud`（自豪）、`confident`（自信）、`calm`（冷静）、`relieved`（安心）、`affectionate`（温柔）、`shy`（害羞）、`embarrassed`（尴尬）、`curious`（好奇）、`concerned`（担心）、`confused`（困惑）、`tired`（疲惫）、`sad`（难过）、`lonely`（孤独）、`disappointed`（失望）、`anxiety`（焦虑）、`fear`（恐惧）、`anger`（愤怒）、`frustrated`（恼火）、`disgust`（厌恶）、`surprised`（惊讶）；未知值由插件降级为 `neutral`。
+- `intensity` 为 0~1 的情绪强度；现阶段为固定值 1.
 - `audio` 为该句台词的 TTS 音频（base64 内嵌）；合成时会在文本前附加 `[emotion]` 情绪标签传给 TTS 引擎（Fish Audio 支持）。
 
 ## 配置说明
@@ -111,6 +85,11 @@ server {
 | `http_port` | 整数 | 文件服务端口（默认 8766；修改 `ws_port` 时请一并调整） |
 | `director_provider_id` | 字符串 | 导演模型提供商 ID（建议选用轻量小模型），在主 LLM 生成原始回复后在原文中内联插入 `[情绪]` 标记（拆分由解析器按标记边界完成，强度为固定默认值）；留空则回退为整段回复作为单个 neutral 表演 |
 | `tts_provider_id` | 字符串 | 用于语音合成的 TTS 提供商 ID，需提前在 AstrBot 中配置对应的 TTS Provider（推荐 Fish Audio，可识别文本前的 `[emotion]` 情绪标签） |
+| `forced_alignment` | 对象 | 强制对齐（FA）服务配置：将整段 TTS 音频与台词文本对齐，得到每个分段的时间窗口，供前端在完整音频内按分段切换情绪。目前仅支持 [audio.cpp](https://github.com/0xShug0/audio.cpp) 项目的对齐接口；关闭开关或服务不可用时降级为按字数估计 |
+| `forced_alignment.enabled` | 布尔 | 启用强制对齐（默认关闭）。关闭时不请求对齐服务，直接按字数估计各分段的时间窗口 |
+| `forced_alignment.api_url` | 字符串 | 对齐服务接口的完整 URL（含路径），如 `http://127.0.0.1:8080/v1/audio/alignments` |
+| `forced_alignment.model` | 字符串 | 请求中的 `model` 表单字段，需与服务端已加载的对齐模型名一致 |
+| `forced_alignment.language` | 字符串 | 对齐语言，可选 `zh`/`yue`/`en`/`de`/`es`/`fr`/`it`/`pt`/`ru`/`ko`/`ja`，需与 TTS 实际播报语言一致 |
 | `vrm_file` | 文件 | VRM 模型文件（`.vrm`），客户端连接后自动推送 |
 | `background_file` | 文件 | 背景图片文件（`.png` / `.jpg` / `.jpeg` / `.webp`） |
 | `vrma_animations` | 模板列表 | VRMA 动画配置，每项包含动画名与 VRMA 文件。`layer=idle` 中命名为 `idle` 的动画作为前端默认待机动作，其余 idle 动画可通过 `set_idle` 工具切换 |

@@ -3,9 +3,12 @@
 The whole reply is synthesized as ONE TTS clip (no per-segment audio).
 Word timings come from an external forced-alignment (FA) HTTP service and
 are matched back onto the parsed performance segments, so the frontend
-knows the start/end time of each segment inside the shared audio.
+knows the start/end time of each segment inside the shared audio. When
+alignment is unavailable or incomplete, the timings are instead estimated
+proportionally from the audio duration (backend-side fallback).
 """
 
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -14,7 +17,7 @@ import aiohttp
 from pydantic import BaseModel
 
 from astrbot.api import logger
-from astrbot.core.utils.media_utils import ensure_wav
+from astrbot.core.utils.media_utils import ensure_wav, get_media_duration
 
 from .performance import Performance
 
@@ -43,12 +46,7 @@ def _extract_word_alignments(data: dict[str, Any]) -> list[WordAlignment]:
         The parsed word alignments; empty when the payload has no usable
         timing list.
     """
-    items = (
-        data.get("timestamps")
-        or data.get("alignment")
-        or data.get("words")
-        or []
-    )
+    items = data.get("timestamps") or data.get("alignment") or data.get("words") or []
     if not isinstance(items, list):
         return []
     words: list[WordAlignment] = []
@@ -80,15 +78,18 @@ async def align_audio_text(
             ffmpeg can decode).
         text: The full dialogue text (tags stripped) the audio speaks.
         alignment_config: The plugin's ``forced_alignment`` config section
-            (``base_url``, ``model``, ``language``).
+            (``enabled``, ``api_url``, ``model``, ``language``).
 
     Returns:
         The ordered list of word alignments, or ``None`` when the service
-        is unavailable or fails.
+        is disabled, unavailable, or fails.
     """
-    base_url = str(alignment_config.get("base_url", "")).rstrip("/")
-    if not base_url:
-        logger.info("[Alignment] no FA base_url configured, skipping")
+    if not alignment_config.get("enabled", False):
+        logger.info("[Alignment] FA disabled, skipping")
+        return None
+    api_url = str(alignment_config.get("api_url", "")).rstrip("/")
+    if not api_url:
+        logger.info("[Alignment] no FA api_url configured, skipping")
         return None
     model = str(alignment_config.get("model", ""))
     language = str(alignment_config.get("language", "zh"))
@@ -118,7 +119,7 @@ async def align_audio_text(
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                base_url + "/v1/audio/alignments",
+                api_url,
                 data=form,
                 timeout=aiohttp.ClientTimeout(total=120),
             ) as resp:
@@ -210,3 +211,86 @@ def apply_word_alignments(
                 "[Alignment] segment %d matched no words, sent without timing",
                 index + 1,
             )
+
+
+def estimate_segment_timings(
+    performances: list[Performance], duration_s: float | None
+) -> None:
+    """Fill in segment timings proportionally when alignment is incomplete.
+
+    All-or-nothing: when every segment already carries a valid time window
+    (finite numbers with ``end > start``), nothing is done. Otherwise the
+    whole timeline is re-estimated — each segment gets a share of the audio
+    duration (or of a 180ms-per-character estimate when the duration is
+    unknown) proportional to its text length, overwriting whatever partial
+    alignment data existed. This keeps the timing contract "when there is
+    audio, every segment has a window" owned by the backend; the client's
+    own estimation stays only as a last-resort defense.
+
+    Args:
+        performances: The parsed segments; ``start``/``end`` are filled in
+            place.
+        duration_s: The shared audio duration in seconds, or ``None`` when
+            probing failed.
+    """
+    if all(
+        item.start is not None
+        and item.end is not None
+        and math.isfinite(item.start)
+        and math.isfinite(item.end)
+        and item.end > item.start
+        for item in performances
+    ):
+        return
+    missing = sum(1 for item in performances if item.start is None or item.end is None)
+    weights = [max(len(item.text), 1) for item in performances]
+    total = sum(weights)
+    span = (
+        duration_s
+        if duration_s is not None and math.isfinite(duration_s) and duration_s > 0
+        else total * 0.18
+    )
+    cursor = 0.0
+    for item, weight in zip(performances, weights):
+        item.start = cursor
+        cursor += weight / total * span
+        item.end = cursor
+    logger.info(
+        "[Alignment] %d/%d segments missing timing, "
+        "estimated proportional timeline (span=%.2fs)",
+        missing,
+        len(performances),
+        span,
+    )
+
+
+async def align_performances(
+    performances: list[Performance],
+    audio_path: str,
+    alignment_config: dict[str, Any],
+) -> None:
+    """Fill each performance's timing window inside the shared TTS clip.
+
+    The clip is aligned against the concatenated segment text via the FA
+    service and the word timings are matched onto the segments. Segments
+    left without a valid window (service down or unmatched words) get the
+    whole timeline re-estimated proportionally from the audio duration,
+    so the degradation is an internal concern of this module and callers
+    get an always-filled timeline whenever audio exists.
+
+    Args:
+        performances: The parsed segments, in playback order; ``start``/
+            ``end`` are filled in place.
+        audio_path: Path to the synthesized TTS audio file (any format
+            ffmpeg can decode).
+        alignment_config: The plugin's ``forced_alignment`` config section
+            (``enabled``, ``api_url``, ``model``, ``language``).
+    """
+    text = "\n".join(item.text for item in performances)
+    words = await align_audio_text(audio_path, text, alignment_config)
+    if words:
+        apply_word_alignments(performances, words)
+    # Backend-side fallback: when alignment is unavailable or incomplete,
+    # estimate every segment's window proportionally from the audio duration.
+    duration_ms = await get_media_duration(audio_path)
+    estimate_segment_timings(performances, duration_ms / 1000 if duration_ms else None)
