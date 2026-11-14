@@ -70,9 +70,11 @@ class UpdateAnimationsMessage(BaseModel):
 class SetIdleMessage(BaseModel):
     """Switch the client's Base-layer standby animation variant.
 
-    Sent out-of-band by the ``set_idle`` LLM tool rather than being part of
-    a performance array, since idle variants are persistent state
-    and need no timing relative to the dialogue.
+    Requested out-of-band by the ``set_idle`` LLM tool rather than being
+    part of a performance array, since idle variants are persistent
+    state. The tool call is buffered per event and this message is sent
+    alongside the reply's performance, so the pose change lands together
+    with the speech instead of while the reply is still generating.
     """
 
     type: Literal["set_idle"] = "set_idle"

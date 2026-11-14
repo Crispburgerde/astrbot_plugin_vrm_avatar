@@ -37,7 +37,7 @@
 |------|------|
 | `initialize` | 启动 WebSocket 服务器（`ws_port`）与 HTTP 文件服务器（`http_port`，路径前缀 `/files/`） |
 | `on_llm_request` | 仅当配置了待机动画时，向 System Prompt 注入 `set_idle` 工具使用说明 |
-| `on_decorating_result` | 调用表演提取模型将原始回复按情绪变化点拆句并标注情绪与强度（聊天平台仍显示原始回复），逐段生成 TTS 音频并通过 WebSocket 推送表演数据；提取失败时回退为整段回复作为单个 neutral 表演 |
+| `on_decorating_result` | 调用表演提取模型将原始回复按情绪变化点拆句并标注情绪与强度（聊天平台仍显示原始回复），逐段生成 TTS 音频并通过 WebSocket 推送表演数据；提取失败时回退为整段回复作为单个 neutral 表演。本轮 `set_idle` 工具缓冲的待机姿态切换也在此处随表演数据一并发送，使姿态变化与台词同步落地 |
 | 客户端连接回调 | 自动向新连接的客户端推送 VRM 模型、背景图与动画列表（以 URL 引用，见下节） |
 
 ## 大文件分发（URL + HTTP）

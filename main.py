@@ -26,6 +26,11 @@ from .websocket_server import WebSocketServer
 
 PLUGIN_NAME = "astrbot_plugin_vrm_avatar"
 
+# Event-extras key holding the idle switch buffered by the ``set_idle``
+# tool until the reply's performance is ready to be pushed (see
+# ``VRMAvatarPlugin.on_decorating_result``).
+_PENDING_IDLE_KEY = "vrm_avatar_pending_idle"
+
 
 def _derive_idle_names(animations: list[object]) -> list[str]:
     """Collect the configured idle-layer animation names.
@@ -106,47 +111,69 @@ class VRMAvatarPlugin(Star):
         name = match_allowed_name(idle_name.strip(), idle_names)
         if name is None:
             return f"无效的待机动画名：{idle_name}。可用值：{'、'.join(idle_names)}"
-        if self.ws_server.client_count == 0:
-            return f"待机动画 {name} 未下发：当前没有形象客户端在线。"
-        try:
-            await self.ws_server.send_message(SetIdleMessage(name=name))
-        except Exception as e:
-            logger.warning(f"[Failed to send idle switch]: {e}")
-            return f"切换待机动画 {name} 失败。"
-        logger.info(f"[Performance] idle: {name}")
+        # Buffer the switch on the event instead of sending immediately:
+        # the tool fires mid-generation, while the reply's performance
+        # pipeline (director + TTS + alignment) is still seconds away.
+        # The switch is flushed in on_decorating_result right before the
+        # performance message so the pose change lands together with the
+        # speech instead of leaving the avatar posing in silence.
+        event.set_extra(_PENDING_IDLE_KEY, name)
         return f"已切换待机动画：{name}。"
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
         # The raw reply is decoupled from performance control: the chat
         # result chain is left untouched, and only the avatar client
-        # receives the extracted performances.
+        # receives the extracted performances. The idle switch buffered
+        # by the set_idle tool is flushed here as well, right before the
+        # performance message, so the pose change lands together with
+        # the speech; a no-text turn still switches the pose alone.
+        pending_idle = event.get_extra(_PENDING_IDLE_KEY)
+        event.set_extra(_PENDING_IDLE_KEY, None)
+
         result = event.get_result()
-        if result is None or not result.chain:
-            return
         text = ""
-        for comp in result.chain:
-            if isinstance(comp, Plain):
-                text += comp.text
-        if not text.strip():
+        if result is not None and result.chain:
+            for comp in result.chain:
+                if isinstance(comp, Plain):
+                    text += comp.text
+        text = text.strip()
+
+        if not text and not pending_idle:
             return
         if self.ws_server.client_count == 0:
+            if pending_idle:
+                logger.info(
+                    f"[Performance] idle {pending_idle} dropped: no avatar client online"
+                )
             return
 
-        performances = await self._direct_performances(event, text)
-        if not performances:
-            return
+        performances: list[Performance] = []
+        if text:
+            performances = await self._direct_performances(event, text)
 
-        message_data = await build_performance_message(
-            self.context,
-            self.config.get("tts_provider_id", ""),
-            performances,
-            self.config.get("forced_alignment", {}),
-        )
-        try:
-            await self.ws_server.send_message(message_data)
-        except Exception as e:
-            logger.warning(f"[Failed to send performance data]: {e}")
+        message_data = None
+        if performances:
+            message_data = await build_performance_message(
+                self.context,
+                self.config.get("tts_provider_id", ""),
+                performances,
+                self.config.get("forced_alignment", {}),
+            )
+
+        if pending_idle:
+            try:
+                await self.ws_server.send_message(SetIdleMessage(name=pending_idle))
+            except Exception as e:
+                logger.warning(f"[Failed to send idle switch]: {e}")
+            else:
+                logger.info(f"[Performance] idle: {pending_idle}")
+
+        if message_data is not None:
+            try:
+                await self.ws_server.send_message(message_data)
+            except Exception as e:
+                logger.warning(f"[Failed to send performance data]: {e}")
 
     async def _direct_performances(
         self,
