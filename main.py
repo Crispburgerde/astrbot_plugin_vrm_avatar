@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 from typing import override
 
@@ -17,60 +16,15 @@ from .messages import (
     build_update_background_message,
     build_update_character_message,
 )
-from .performance import Performance, match_allowed_name, parse_performance
+from .performance import Performance, match_allowed_name, parse_tagged_text
 from .prompts import (
-    build_extractor_prompt,
-    build_extractor_user_prompt,
+    build_director_prompt,
+    build_director_user_prompt,
     build_idle_prompt,
 )
 from .websocket_server import WebSocketServer
 
 PLUGIN_NAME = "astrbot_plugin_vrm_avatar"
-
-# A dialogue fragment not ending in terminal punctuation may have been split
-# mid-sentence by the extractor model; such fragments are merge candidates.
-# Ellipses are excluded: they are treated as caesuras, not sentence ends.
-_FRAGMENT_TAIL_RE = re.compile(r"[。！？!?\.\"”』」)]\s*$")
-# Ellipses/dashes are often mere caesuras, so even a punctuated beat this
-# short counts as a fragment and is merged into the next line.
-_CAESURA_MAX_CHARS = 8
-
-
-def _merge_fragmented(performances: list[Performance]) -> list[Performance]:
-    """Merge only accidental over-splits, keeping deliberate emotion beats.
-
-    Small extractor models sometimes split at commas, ellipsis caesuras, or
-    mid-clause. A beat is merged into the following line only when ALL of
-    these hold: its text lacks terminal punctuation OR is at most
-    ``_CAESURA_MAX_CHARS`` long (an accidental split), and the next line
-    carries the same emotion. A changed emotion marks a deliberate
-    performance beat, so the split is preserved even mid-sentence.
-
-    Args:
-        performances: The parsed performances, in playback order.
-
-    Returns:
-        The merged performance list (never empty for non-empty input).
-    """
-    merged: list[Performance] = []
-    for item in performances:
-        prev = merged[-1] if merged else None
-        if (
-            prev is not None
-            and (
-                not _FRAGMENT_TAIL_RE.search(prev.text)
-                or len(prev.text) <= _CAESURA_MAX_CHARS
-            )
-            and item.emotion == prev.emotion
-        ):
-            merged[-1] = Performance(
-                text=prev.text + item.text,
-                emotion=prev.emotion,
-                intensity=max(prev.intensity, item.intensity),
-            )
-        else:
-            merged.append(item)
-    return merged
 
 
 def _derive_idle_names(animations: list[object]) -> list[str]:
@@ -179,7 +133,7 @@ class VRMAvatarPlugin(Star):
         if self.ws_server.client_count == 0:
             return
 
-        performances = await self._extract_performances(event, text)
+        performances = await self._direct_performances(event, text)
         if not performances:
             return
 
@@ -187,31 +141,33 @@ class VRMAvatarPlugin(Star):
             self.context,
             self.config.get("tts_provider_id", ""),
             performances,
+            self.config.get("forced_alignment", {}),
         )
         try:
             await self.ws_server.send_message(message_data)
         except Exception as e:
             logger.warning(f"[Failed to send performance data]: {e}")
 
-    async def _extract_performances(
+    async def _direct_performances(
         self,
         event: AstrMessageEvent,
         text: str,
     ) -> list[Performance]:
-        """Split a raw reply into performances via the configured extractor
+        """Insert emotion tags into a raw reply via the configured director
         model, falling back to the whole reply as a single dialogue beat.
 
-        The extractor model (configured by ``extractor_provider_id``)
+        The director model (configured by ``director_provider_id``)
         receives the triggering user message (for scene context) plus the
-        raw reply and returns a JSON array of ``{text, emotion,
-        intensity}`` lines; emotion is validated against the fixed 24-word
-        vocabulary and intensity clamped by the parser. When no extractor
-        is configured, or its call/parse fails, the reply is forwarded
-        whole with the default neutral emotion, so the avatar still speaks
-        the entire reply.
+        raw reply and returns the same text with inline ``[emotion]`` tags;
+        the parser splits that into segments at tag boundaries and
+        validates each tag against the fixed 24-word vocabulary (intensity
+        is no longer generated, it stays at the fixed default). When no
+        director is configured, or its call/parse fails, the reply is
+        forwarded whole with the default neutral emotion, so the avatar
+        still speaks the entire reply.
 
         Args:
-            event: The message event, used to resolve the extractor
+            event: The message event, used to resolve the director
                 provider and the triggering user message.
             text: The raw reply text collected from the result chain.
 
@@ -219,28 +175,28 @@ class VRMAvatarPlugin(Star):
             The ordered list of performances, or an empty list when the
             reply contains no performable dialogue.
         """
-        provider_id = self.config.get("extractor_provider_id", "")
+        provider_id = self.config.get("director_provider_id", "")
         provider = self.context.get_provider_by_id(provider_id) if provider_id else None
         # Only chat providers expose text_chat; other provider types (TTS/STT,
-        # etc.) are not usable as the extractor, so fall back to the whole text.
+        # etc.) are not usable as the director, so fall back to the whole text.
         if not isinstance(provider, Provider):
             logger.info(
-                "[Performance] no valid extractor configured, using whole text as one beat"
+                "[Performance] no valid director configured, using whole text as one beat"
             )
         else:
             try:
                 resp = await provider.text_chat(
-                    prompt=build_extractor_user_prompt(event.message_str or "", text),
-                    system_prompt=build_extractor_prompt(),
+                    prompt=build_director_user_prompt(event.message_str or "", text),
+                    system_prompt=build_director_prompt(),
                 )
             except Exception as e:
-                logger.warning(f"[Extractor request failed]: {e}")
+                logger.warning(f"[Director request failed]: {e}")
             else:
-                performances = parse_performance((resp.completion_text or "").strip())
+                performances = parse_tagged_text((resp.completion_text or "").strip())
                 if performances:
-                    return _merge_fragmented(performances)
+                    return performances
                 logger.warning(
-                    "[Performance] extractor output unparsable, using whole text as one beat"
+                    "[Performance] director output unparsable, using whole text as one beat"
                 )
 
         # Fallback: the whole reply becomes a single dialogue beat.

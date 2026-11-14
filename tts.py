@@ -16,7 +16,7 @@ from astrbot.core.provider.provider import TTSProvider
 
 async def get_tts_audio(
     context: Context, tts_provider_id: str, text: str
-) -> tuple[str, str] | None:
+) -> tuple[str, str, str] | None:
     """Generate TTS audio for the given text.
 
     Args:
@@ -25,8 +25,9 @@ async def get_tts_audio(
         text: The text to synthesize.
 
     Returns:
-        A tuple of ``(filename, audio_base64)`` on success, otherwise
-        ``None``.
+        A tuple of ``(filename, audio_base64, audio_path)`` on success,
+        otherwise ``None``. The path is kept so downstream steps (forced
+        alignment) can convert the file to WAV.
     """
     if not tts_provider_id:
         logger.warning("[TTS] TTS provider not configured")
@@ -40,13 +41,17 @@ async def get_tts_audio(
         return None
 
     try:
+        logger.info(
+            f"[TTS] Synthesizing with provider '{tts_provider_id}' "
+            f"({type(tts_provider).__name__})"
+        )
         audio_path = await tts_provider.get_audio(text)
         with open(audio_path, "rb") as f:
             audio_base64 = base64.b64encode(f.read()).decode()
         filename = Path(audio_path).name
 
         logger.info(f"[TTS] Audio generated: {audio_path}")
-        return filename, audio_base64
+        return filename, audio_base64, str(audio_path)
     except Exception as e:
         logger.warning(f"[TTS] Audio generation failed: {e}")
         return None

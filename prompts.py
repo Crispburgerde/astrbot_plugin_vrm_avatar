@@ -4,27 +4,17 @@
 
 from .performance import EMOTION_WORDS
 
-EXTRACTOR_PROMPT = """你是一个虚拟形象表演编排器。用户会给你本轮的用户消息（用于理解对话场景）以及角色对该消息的原始回复文本，你需要把回复拆分成一句一句的台词，并结合场景为每句台词标注情绪及其强度，输出为 JSON 数组。
+DIRECTOR_PROMPT = """你是一个虚拟形象表演导演。用户会给你本轮的用户消息（用于理解对话场景）以及角色对该消息的原始回复文本，你需要在回复文本中插入情绪标签，标注每段文本说话时的情绪与语气，直接输出标注后的文本。
 
-### 结构定义
-以下 TypeScript 类型仅用于说明输出结构，实际输出的是纯 JSON 数组：
-```ts
-type Emotion = {emotions};
-interface Performance {
-  text: string;             // 必填：该句台词
-  emotion?: Emotion;        // 可选：说这句话时的情绪，默认 neutral
-  intensity?: number;       // 可选：情绪强度 0~1 的小数，默认 0.85
-}
-type Result = Performance[];
-```
+### 标签格式
+标签形如 `[happy]`，插在它所作用的文本之前，作用范围直到下一个标签；可用情绪枚举：{emotions}
+
 ### 规则
-1. **按情绪变化点拆分**：拆分的基本单位是**情绪/表现变化点**——同一情绪的连续台词并入同一个对象，只有当情绪（或表现强度）发生明显变化时才拆分出一个新对象，保持原文顺序；只做拆分，不增删改写。避免产出大量只有几个字的碎片台词，短回复通常一个对象即可
-2. **用户消息仅作场景参考**：用户消息只用于理解语境以选择更贴合的情绪与强度，禁止把用户消息的内容编排进台词或改变台词内容
-3. **去除动作描写**：`text` 中禁止出现括号（如 `()`、`（）`、`【】`）或星号（`*`）括住的动作描写（如 `(微笑)`、`*叹气*`），其情绪应体现在 `emotion` 与 `intensity` 的选择中
-4. **枚举值逐字选取（硬性约束）**：`emotion` 的值**只能从类型定义的字符串枚举中选取**，禁止创造枚举之外的任何新值；没有贴合的情绪时使用 `neutral`
-5. **intensity 取值**：0~1 之间的小数，表示情绪强度；平淡陈述用较低值，强烈情绪用较高值
-6. **仅输出 JSON 数组**：纯 JSON 文本，第一个字符必须是 `[`，最后一个字符必须是 ]，不要包含 Markdown 代码块标记、注释或任何额外说明
-7. **text 禁双引号、不换行**：一句台词一行写完，值内禁止出现双引号与换行
+1. **不拆句、不改写**：保持原文的文字、标点与分段完全不变，只在情绪或语气发生变化的位置插入标签；同一情绪的连续文本只在开头插一个标签，不要每句都插
+2. **用户消息仅作场景参考**：用户消息只用于理解语境以选择更贴合的情绪，禁止把用户消息的内容编入回复或改变回复内容
+3. **去除动作描写**：如原文中出现括号（`()`、`（）`、`【】`）或星号（`*`）括住的动作描写（如 `(微笑)`、`*叹气*`），删去这些描写，其情绪改用标签表达
+4. **枚举值逐字选取（硬性约束）**：标签内容**只能从情绪枚举中逐字选取**，禁止创造枚举之外的任何新值；没有贴合的情绪时不插标签（沿用上一个标签的情绪）
+5. **直接输出标注后的文本**：不要包含 Markdown 代码块标记、注释或任何额外说明；文本开头若没有标签则默认为 neutral
 """
 
 IDLE_PROMPT_TEMPLATE = (
@@ -34,7 +24,7 @@ IDLE_PROMPT_TEMPLATE = (
     "不要频繁调用。可用值：{idle}"
 )
 
-EXTRACTOR_USER_TEMPLATE = """### 用户消息
+DIRECTOR_USER_TEMPLATE = """### 用户消息
 {user_message}
 
 ### 角色回复（待编排的原始文本，只编排此段文本）
@@ -50,21 +40,21 @@ def _join_names(names: list[str], fallback: str) -> str:
     return " | ".join(f'"{n}"' for n in names) if names else fallback
 
 
-def build_extractor_prompt() -> str:
-    """Build the system prompt for the extractor model that splits a raw
-    reply into dialogue lines and picks an emotion plus intensity per line.
+def build_director_prompt() -> str:
+    """Build the system prompt for the director model that inserts inline
+    emotion/tone tags into a raw reply.
 
     Returns:
         The formatted prompt string with the fixed 24-word emotion
         vocabulary inlined.
     """
-    return EXTRACTOR_PROMPT.replace(
+    return DIRECTOR_PROMPT.replace(
         "{emotions}", _join_names(list(EMOTION_WORDS), '"neutral"')
     )
 
 
-def build_extractor_user_prompt(user_message: str, reply: str) -> str:
-    """Build the user prompt for the extractor model.
+def build_director_user_prompt(user_message: str, reply: str) -> str:
+    """Build the user prompt for the director model.
 
     Bundles the triggering user message (context for picking fitting
     emotions) with the raw reply to orchestrate. Designed so more context
@@ -77,7 +67,7 @@ def build_extractor_user_prompt(user_message: str, reply: str) -> str:
     Returns:
         The formatted user prompt string.
     """
-    return EXTRACTOR_USER_TEMPLATE.format(
+    return DIRECTOR_USER_TEMPLATE.format(
         user_message=user_message.strip() or "（无）",
         reply=reply,
     )

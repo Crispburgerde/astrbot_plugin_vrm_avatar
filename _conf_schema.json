@@ -2,32 +2,32 @@
     "ws_host": {
         "description": "WebSocket 监听地址",
         "type": "string",
-        "hint": "WebSocket 与文件服务监听的网卡地址。0.0.0.0 表示监听所有网卡（局域网/手机前端可访问），127.0.0.1 表示仅本机访问。",
+        "hint": "WebSocket 与文件下载服务监听的网卡地址。",
         "default": "0.0.0.0"
     },
     "ws_port": {
         "description": "WebSocket 端口",
         "type": "int",
-        "hint": "与前端客户端通信的 WebSocket 端口。",
+        "hint": "与客户端通信的 WebSocket 端口。",
         "default": 8765
     },
     "http_port": {
-        "description": "文件服务端口",
+        "description": "文件下载端口",
         "type": "int",
-        "hint": "VRM 模型、背景图、VRMA 动画等大文件的 HTTP 下载端口（默认 8766，即 WebSocket 端口 + 1）。若修改了 ws_port，请一并调整此端口。若通过 Nginx 等反向代理对外提供 HTTPS，请按需调整并放行该端口。",
+        "hint": "VRM 模型、背景图、VRMA 动画等大文件的 HTTP 下载端口。",
         "default": 8766
     },
-    "extractor_provider_id": {
-        "description": "表演提取模型",
+    "director_provider_id": {
+        "description": "导演模型 ID",
         "type": "string",
-        "hint": "用于在大模型生成原始回复后，拆分台词并为每句标注情绪与强度的小模型提供商 ID。留空则回退为整段回复作为单个表演（neutral 情绪）。",
+        "hint": "用于在大模型生成原始回复后，在原文中内联插入 [情绪] 标记的模型提供商 ID（表演分段由解析器按标记边界完成，情绪强度为固定默认值）。留空则回退为整段回复保持 neutral 情绪。",
         "default": "",
         "_special": "select_provider"
     },
     "tts_provider_id": {
-        "description": "TTS 提供商 ID",
+        "description": "TTS 模型 ID",
         "type": "string",
-        "hint": "用于语音合成的 TTS 提供商 ID。",
+        "hint": "用于语音合成的 TTS 模型 ID。",
         "default": "",
         "_special": "select_provider_tts"
     },
@@ -76,6 +76,38 @@
                         "file_types": ["vrma"]
                     }
                 }
+            }
+        }
+    },
+    "forced_alignment": {
+        "description": "强制对齐服务",
+        "type": "object",
+        "hint": "将整段 TTS 音频与台词文本做强制对齐（FA），得到每个字/词的时间窗口，用于客户端在整段音频内按分段播放。目前仅支持 https://github.com/0xShug0/audio.cpp 项目的对齐接口。关闭开关或服务不可用时，将降级为按字数估计。",
+        "items": {
+            "enabled": {
+                "description": "启用强制对齐",
+                "type": "bool",
+                "hint": "关闭时不请求对齐服务，直接按字数估计各分段时间窗口。",
+                "default": false
+            },
+            "api_url": {
+                "description": "对齐接口地址",
+                "type": "string",
+                "hint": "对齐服务接口的完整 URL（含路径），例如 http://127.0.0.1:8080/v1/audio/alignments。",
+                "default": ""
+            },
+            "model": {
+                "description": "模型名",
+                "type": "string",
+                "hint": "请求中的 model 表单字段，需与服务端已加载的对齐模型名一致。",
+                "default": "qwen3_forced_aligner"
+            },
+            "language": {
+                "description": "对齐语言",
+                "type": "string",
+                "options": ["zh", "yue", "en", "de", "es", "fr", "it", "pt", "ru", "ko", "ja"],
+                "hint": "台词的语言，需与 TTS 实际播放的语言一致才能得到正确的时间戳。",
+                "default": "zh"
             }
         }
     }
