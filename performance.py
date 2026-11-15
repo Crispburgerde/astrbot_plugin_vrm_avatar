@@ -58,9 +58,9 @@ _EMOTIONS_CASEFOLDED = {word.casefold(): word for word in EMOTION_WORDS}
 # Fixed intensity: the LLM no longer emits per-segment intensity.
 DEFAULT_INTENSITY = 1
 
-# Any bracketed token; validity against the vocabulary is checked at parse
-# time so non-vocabulary brackets (e.g. leftover action descriptions) stay
-# literal text instead of being swallowed as tags.
+# Any bracketed token; vocabulary membership is checked at parse time so
+# values outside the vocabulary can be downgraded to ``neutral`` instead
+# of leaking into the dialogue text the frontend displays.
 _BRACKET_RE = re.compile(r"(\[[^\[\]\n]*\])")
 
 # --- Performance model -----------------------------------------------------
@@ -138,16 +138,16 @@ def parse_tagged_text(text: str) -> list[Performance] | None:
             word = token[1:-1].strip()
             emotion = _EMOTIONS_CASEFOLDED.get(word.casefold())
             if emotion is None:
-                # Not a vocabulary tag (e.g. leftover action description):
-                # keep the bracket verbatim in the dialogue text.
+                # Unknown emotion value (LLM invention or leftover action
+                # description): downgrade to neutral so the bracket never
+                # leaks into the dialogue text the frontend displays and
+                # the TTS speaks.
                 if word:
                     logger.warning(
-                        "[Performance] bracket not a known emotion tag, "
-                        "kept as literal text: %s",
-                        token,
+                        "[Performance] unknown emotion tag %r, downgraded to neutral",
+                        word,
                     )
-                buf += token
-                continue
+                emotion = "neutral"
             if buf.strip():
                 segments.append((current_emotion, buf.strip()))
             buf = ""
@@ -160,4 +160,5 @@ def parse_tagged_text(text: str) -> list[Performance] | None:
     if not segments:
         logger.warning("[Performance] no performable text parsed from output")
         return None
+    return [Performance(text=t, emotion=e) for e, t in segments]
     return [Performance(text=t, emotion=e) for e, t in segments]

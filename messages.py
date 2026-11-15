@@ -70,9 +70,11 @@ class UpdateAnimationsMessage(BaseModel):
 class SetIdleMessage(BaseModel):
     """Switch the client's Base-layer standby animation variant.
 
-    Sent out-of-band by the ``set_idle`` LLM tool rather than being part of
-    a performance array, since idle variants are persistent state
-    and need no timing relative to the dialogue.
+    Requested out-of-band by the ``set_idle`` LLM tool rather than being
+    part of a performance array, since idle variants are persistent
+    state. The tool call is buffered per event and this message is sent
+    alongside the reply's performance, so the pose change lands together
+    with the speech instead of while the reply is still generating.
     """
 
     type: Literal["set_idle"] = "set_idle"
@@ -92,29 +94,39 @@ async def build_performance_message(
     tts_provider_id: str,
     performances: list[Performance],
     alignment_config: dict[str, Any],
+    tts_strip_emotion_tags: bool = False,
 ) -> PerformanceMessage:
     """Synthesize ONE shared TTS clip, align it, and wrap the performances
     for the wire.
 
     The full reply is synthesized as a single clip: the segment texts are
     joined with their emotion tags inline (``[emotion]``), which Fish Audio
-    TTS interprets as prosody markers. The clip is then handed to
-    :func:`alignment.align_performances`, which fills each performance's
-    ``start``/``end`` window inside the clip (with a proportional-estimate
-    fallback when the forced-alignment service is down or incomplete).
-    The audio is attached to the message as a sibling of the performance
-    list, never split per segment.
+    TTS interprets as prosody markers — unless ``tts_strip_emotion_tags``
+    is set, in which case the tags are removed so TTS models that do not
+    understand them neither speak nor choke on them. The clip is then
+    handed to :func:`alignment.align_performances`, which fills each
+    performance's ``start``/``end`` window inside the clip (with a
+    proportional-estimate fallback when the forced-alignment service is
+    down or incomplete). The audio is attached to the message as a sibling
+    of the performance list, never split per segment; the performance list
+    itself always keeps the emotion fields, so the frontend performance is
+    unaffected by the switch.
 
     Args:
         context: The AstrBot context, used for TTS resolution.
         tts_provider_id: The configured TTS provider id.
         performances: The parsed performances, in playback order.
         alignment_config: The plugin's ``forced_alignment`` config section.
+        tts_strip_emotion_tags: Remove the ``[emotion]`` markers from the
+            text sent to TTS (for TTS models without tag support).
 
     Returns:
         The wire-ready performance message.
     """
-    dialogue = "\n".join(f"[{item.emotion}]{item.text}" for item in performances)
+    if tts_strip_emotion_tags:
+        dialogue = "\n".join(item.text for item in performances)
+    else:
+        dialogue = "\n".join(f"[{item.emotion}]{item.text}" for item in performances)
     audio_result = await get_tts_audio(context, tts_provider_id, dialogue)
     if audio_result:
         filename, audio_base64, audio_path = audio_result
@@ -171,9 +183,10 @@ async def build_update_animations_message(
     Each animation maps a name to a single VRMA file, referenced by
     ``url``. ``layer`` routes the animation on the client's layered
     animation system (idle / gesture / action, default action); only idle
-    entries are actively used (the ``set_idle`` tool whitelist). The
-    animation named ``idle`` (layer=idle) is used by the client as the
-    default standby.
+    entries are actively used (the ``set_idle`` tool whitelist). The first
+    ``layer=idle`` animation is used by the client as the default standby
+    (falling back to the animation literally named ``idle`` only when no
+    idle-layer animation is configured).
     """
     entries: list[AnimationEntry] = []
     for animation in animations or []:

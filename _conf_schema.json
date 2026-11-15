@@ -31,6 +31,12 @@
         "default": "",
         "_special": "select_provider_tts"
     },
+    "tts_strip_emotion_tags": {
+        "description": "TTS 剥离情绪标签",
+        "type": "bool",
+        "hint": "开启后在调用 TTS 时从台词中移除 [情绪] 标签，避免不支持标签的模型把标签念出来或合成失败。无论开关如何，发给客户端的表演消息不受影响。",
+        "default": false
+    },
     "vrm_file": {
         "description": "VRM 模型文件",
         "type": "file",
@@ -58,7 +64,7 @@
                     "name": {
                         "description": "动画名",
                         "type": "string",
-                        "hint": "动画的唯一标识，必填，支持中文。避免使用 @、[] 等符号。layer=idle 中命名为 idle 的动画会作为前端默认待机动作。",
+                        "hint": "动画的唯一标识，必填，支持中文。避免使用 @、[] 等符号。第一个 layer=idle 的动画会作为前端默认待机动作。",
                         "default": ""
                     },
                     "layer": {
