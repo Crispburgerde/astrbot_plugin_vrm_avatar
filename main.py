@@ -159,6 +159,7 @@ class VRMAvatarPlugin(Star):
                 self.config.get("tts_provider_id", ""),
                 performances,
                 self.config.get("forced_alignment", {}),
+                self.config.get("tts_strip_emotion_tags", False),
             )
 
         if pending_idle:
