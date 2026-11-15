@@ -212,3 +212,7 @@ tools/
 # Private persona / roleplay prompt files (do not publish)
 人格设定.txt
 角色扮演提示词.txt
+
+# Frontend build artifacts for views/ (committed for distribution,
+# but sourcemaps are dead weight and leak source layout)
+views/**/*.map
