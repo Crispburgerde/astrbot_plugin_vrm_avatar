@@ -2,7 +2,10 @@
 
 为 AstrBot 提供 VRM 虚拟形象能力的插件。通过 WebSocket 驱动前端 VRM 模型，实现情绪表演、语音合成与口型同步的实时演出。
 
-> **注意**：本插件负责后端能力，前端应用 [astrbot_vrm_avatar_client](https://github.com/Crispburgerde/astrbot_vrm_avatar_client) 负责 VRM 模型的渲染与表演呈现，可独立部署，也可直接在插件页面中预览（但目前无法持久化保存前端配置）。
+> **注意**：本插件负责后端能力，客户端 [astrbot_vrm_avatar_client](https://github.com/Crispburgerde/astrbot_vrm_avatar_client) 负责 VRM 模型的渲染与表演呈现。客户端支持两种使用方式：
+>
+> 1. **内嵌预览**：直接使用嵌入在插件管理页面中的客户端进行预览，无需额外部署；但此方式下会失去浏览器持久化保存前端配置信息的功能。
+> 2. **Nginx 独立部署**：将客户端作为静态站点用 Nginx 托管，功能完整，支持持久化保存前端配置。
 
 ## 功能特性
 
