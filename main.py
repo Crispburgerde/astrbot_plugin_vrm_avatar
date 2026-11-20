@@ -82,6 +82,20 @@ class VRMAvatarPlugin(Star):
     async def initialize(self):
         """Start the WebSocket server on plugin initialization."""
         await self.ws_server.start()
+        # Expose the configured WS / HTTP ports to the embedded WebUI client
+        # through the dashboard plugin API bridge: the sandboxed iframe page
+        # cannot read localStorage, so it asks the backend for its ports
+        # instead of guessing the defaults.
+        self.context.register_web_api(
+            "astrbot_plugin_vrm_avatar/client_info",
+            self._handle_client_info,
+            ["GET"],
+            "VRM avatar client connection info",
+        )
+
+    async def _handle_client_info(self) -> dict:
+        """Return the live WebSocket and HTTP file server ports."""
+        return {"ws_port": self.ws_server.port, "http_port": self.ws_server.http_port}
 
     @override
     async def terminate(self):

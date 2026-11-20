@@ -17,6 +17,7 @@ import asyncio
 import email.utils
 import http
 import json
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import final
@@ -35,6 +36,7 @@ MessageCallback = Callable[[dict[str, JsonValue]], Awaitable[None]]
 
 # MIME types for the plugin data files served over plain HTTP.
 _CONTENT_TYPES = {
+    ".json": "application/json",
     ".vrm": "model/gltf-binary",
     ".vrma": "application/json",
     ".png": "image/png",
@@ -174,7 +176,9 @@ class WebSocketServer:
     async def _handle_http(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        """Serve one ``GET /files/<relative-path>`` request from ``file_root``.
+        """Serve plain-HTTP requests: ``GET /files/<relative-path>`` downloads
+        from ``file_root`` and ``GET/POST /client-settings`` persists the
+        avatar client's preferences (see :meth:`_handle_client_settings`).
 
         Large assets (VRM model, background, VRMA animations) are fetched by
         the browser over plain HTTP with CORS, ETag revalidation, and
@@ -203,18 +207,19 @@ class WebSocketServer:
 
             if method == "OPTIONS":
                 # CORS preflight: the cross-origin client conditionally
-                # re-fetches files with If-None-Match / If-Modified-Since,
-                # which are not CORS-safelisted headers, so the browser sends
-                # an OPTIONS probe first. Echo back the requested headers and
-                # cache the preflight result to avoid one probe per file.
+                # re-fetches files with If-None-Match / If-Modified-Since and
+                # posts JSON settings (Content-Type), none of which are
+                # CORS-safelisted, so the browser sends an OPTIONS probe
+                # first. Echo back the requested headers and cache the
+                # preflight result to avoid one probe per request.
                 allow_headers = (
                     req_headers.get("access-control-request-headers")
-                    or "If-None-Match, If-Modified-Since, Range"
+                    or "Content-Type, If-None-Match, If-Modified-Since, Range"
                 )
                 headers = [
                     "HTTP/1.1 204 No Content",
                     "Access-Control-Allow-Origin: *",
-                    "Access-Control-Allow-Methods: GET, OPTIONS",
+                    "Access-Control-Allow-Methods: GET, POST, OPTIONS",
                     f"Access-Control-Allow-Headers: {allow_headers}",
                     "Access-Control-Max-Age: 86400",
                     "Content-Length: 0",
@@ -224,6 +229,9 @@ class WebSocketServer:
                 return
 
             path = urlsplit(raw_path).path
+            if path == "/client-settings":
+                await self._handle_client_settings(reader, writer, method, req_headers)
+                return
             if method != "GET" or not path.startswith("/files/"):
                 self._write_http(writer, http.HTTPStatus.NOT_FOUND, "Not found\n")
                 return
@@ -279,6 +287,84 @@ class WebSocketServer:
                 await writer.wait_closed()
             except ConnectionError:
                 pass
+
+    async def _handle_client_settings(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        method: str,
+        req_headers: dict[str, str],
+    ) -> None:
+        """Serve ``GET/POST /client-settings`` — the client settings blob.
+
+        All avatar-client preferences (volume, lights, amplitudes, host and
+        ports) are persisted in ``client_settings.json`` inside ``file_root``
+        so they survive on the AstrBot host instead of the browser: the WebUI
+        embeds plugin pages in a sandboxed iframe whose opaque origin blocks
+        ``localStorage``, and a single server-side store keeps standalone and
+        embedded deployments on one persistence path.
+
+        Args:
+            reader: Request body stream (used for POST).
+            writer: Response stream.
+            method: HTTP method of the request.
+            req_headers: Parsed request headers.
+        """
+        assert self._file_root is not None  # guarded by start()
+        settings_path = self._file_root / "client_settings.json"
+
+        if method == "GET":
+            blob = "{}"
+            try:
+                blob = settings_path.read_text(encoding="utf-8")
+                json.loads(blob)  # never serve a corrupted file
+            except (OSError, ValueError):
+                blob = "{}"
+            self._write_http(
+                writer,
+                http.HTTPStatus.OK,
+                blob,
+                content_type="application/json",
+            )
+            return
+
+        if method != "POST":
+            self._write_http(
+                writer, http.HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed\n"
+            )
+            return
+
+        try:
+            length = int(req_headers.get("content-length", "0"))
+        except ValueError:
+            length = -1
+        # 64 KiB is orders of magnitude above the flat scalar settings the
+        # client stores; larger bodies are rejected without reading them.
+        if not 0 < length <= 64 * 1024:
+            self._write_http(
+                writer, http.HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Invalid body\n"
+            )
+            return
+        try:
+            body = json.loads((await reader.readexactly(length)).decode("utf-8"))
+        except (asyncio.IncompleteReadError, UnicodeDecodeError, ValueError):
+            self._write_http(
+                writer, http.HTTPStatus.BAD_REQUEST, "Malformed JSON body\n"
+            )
+            return
+        if not isinstance(body, dict):
+            self._write_http(
+                writer, http.HTTPStatus.BAD_REQUEST, "Body must be an object\n"
+            )
+            return
+
+        # Atomic replace so a crash mid-write never truncates the settings.
+        tmp_path = settings_path.with_name(settings_path.name + ".tmp")
+        tmp_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp_path, settings_path)
+        self._write_http(
+            writer, http.HTTPStatus.OK, '{"ok": true}', content_type="application/json"
+        )
 
     @staticmethod
     def _write_http(
