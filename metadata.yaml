@@ -1,6 +1,6 @@
 name: astrbot_plugin_vrm_avatar # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: VRM虚拟形象 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
 desc: 为AstrBot提供一个VRM虚拟形象的插件。支持两种使用方式：1、在插件页面中内嵌预览（零配置，连接参数自动读取）2、单独部署前端应用 astrbot_vrm_avatar_client（https://github.com/Crispburgerde/astrbot_vrm_avatar_client）（连接参数保存在浏览器 localStorage）。舞台参数（音量/灯光/呼吸与摆动幅度等）在两种方式下均持久化保存到插件数据目录。 # 插件简短描述
-version: 1.0.0 # 插件版本号。格式：v1.1.1 或者 v1.1
+version: 1.0.1 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: Dadaburger # 作者
 repo: https://github.com/Crispburgerde/astrbot_plugin_vrm_avatar # 插件的仓库地址
